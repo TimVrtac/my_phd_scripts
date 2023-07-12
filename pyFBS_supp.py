@@ -144,3 +144,72 @@ def create_xlsx(nodes, name, VP=False, VP_positions=None, VP_chn_DoFs=None,
         if VP:
             VP_channels.to_excel(writer, sheet_name='VP_Channels')
             VP_ref_channels.to_excel(writer, sheet_name='VP_RefChannels')
+
+
+def df_template():
+    """
+    Creates a template for df used in pyFBS.
+
+    Columns for channels and impacts are used as follows
+        - Name: str
+        - Description: str
+        - Grouping: int (used for virtual point transformation)
+        - Quantity: str (Displacement, Velocity, Acceleration for channels; Force, Moment for impacts)
+        - Position_1, Position_2, Position_3: float (coordinates of the sensor/impact)
+        - Direction_1, Direction_2, Direction_3: float (directions of the sensor/impact)
+
+    For virtual point transformation, the columns are used as follows:
+        - Name: name of the virtual point dof
+        - Description: description of the virtual point dof (ux, uy, uz, rx, ry, rz for channels;
+                                                             fx, fy, fz, mx, my, mz for impacts)
+        - Grouping: grouping of the virtual point - corresponds to the grouping of the sensors/impacts used in VPT
+        - Quantity: str (Displacement, Velocity, Acceleration for channels; Force, Moment for impacts)
+        - Position_1, Position_2, Position_3: coordinates of the virtual point
+        - Direction_1, Direction_2, Direction_3: directions of the virtual point
+
+
+    Returns: pd.DataFrame
+    """
+    return pd.DataFrame({'Name': [], 'Description': [], 'Grouping': [], 'Quantity': [],
+                         'Position_1': [], 'Position_2': [], 'Position_3': [],
+                         'Direction_1': [], 'Direction_2': [], 'Direction_3': []})
+
+
+def fill_df(df, points, dof_per_point, type_):
+    """
+    Fills the df with the given data.
+
+    Args:
+        df: pd.DataFrame
+        points: list of points (list of lists)
+        dof_per_point: usually 1, 3 or 6
+        type_: str (channel/chn or impact/imp)
+
+    Returns: pd.DataFrame
+    """
+    chn_dof_dict = {0: 'ux', 1: 'uy', 2: 'uz', 3: 'rx', 4: 'ry', 5: 'rz'}
+    imp_dof_dict = {0: 'fx', 1: 'fy', 2: 'fz', 3: 'mx', 4: 'my', 5: 'mz'}
+    if type_ == 'channel' or type_ == 'chn':
+        dof_names = [chn_dof_dict[_] for _ in range(dof_per_point)]
+        quantity = 'Acceleration'
+    elif type_ == 'impact' or type_ == 'imp':
+        dof_names = [imp_dof_dict[_] for _ in range(dof_per_point)]
+        quantity = 'Force'
+    else:
+        raise ValueError('type must be either channel/chn or impact/imp')
+    for p_ind, point in enumerate(points):
+        for dof_ind, dof in enumerate(dof_names):
+            directions = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+            to_add = pd.DataFrame({'Name': f'{type_}_{dof}_{p_ind+1}',
+                                           'Description': dof,
+                                           'Grouping': 0,
+                                           'Quantity': quantity,
+                                           'Position_1': point[0],
+                                           'Position_2': point[1],
+                                           'Position_3': point[2],
+                                           'Direction_1': directions[dof_ind % 3][0],
+                                           'Direction_2': directions[dof_ind % 3][1],
+                                           'Direction_3': directions[dof_ind % 3][2]}, index=[p_ind*dof_per_point+dof_ind])
+
+            df = pd.concat([df, to_add])
+    return df

@@ -1,6 +1,8 @@
 from ansys.mapdl import reader
 import numpy as np
 from tqdm.notebook import tqdm
+import pyvista as pv
+from tools import match_coordinates
 
 
 def unpack_rst(rst_path):
@@ -99,3 +101,86 @@ def get_FRF(acc_eig_vec, imp_eig_vec, eig_freq, freq, modes=None, damping=0.003)
         else:
             FRF += np.einsum('ij,k->ijk', (vec1 @ vec2), 1 / (val ** 2 - omega ** 2 + 1.j * damping[i] * val ** 2))
     return FRF
+
+
+# ---------------------------------------------------------------------------------
+# Visualization using PyVista
+class PlotObj:
+    """Class for plotting from .rst file (Ansys results) and choosing points on the plot."""
+    def __init__(self, rst, atol, notebook=False, origin_scale=None, track_click_position=False):
+        self.rst = rst
+        self.atol = atol
+        self.plotter = pv.Plotter(notebook=notebook)
+        self.xyz = 'x'
+        self.chosen_points = {f'Position_{i + 1}': [] for i in range(3)}
+        self.chosen_points_upd = []
+        self.dof_to_ind = {'x': 0, 'y': 1, 'z': 2}
+        self.ind_to_dof = {1: 'y', 2: 'z', 3: 'x'}
+
+        # plot object
+        self.plotter.add_mesh(rst.grid, show_edges=True, style='wireframe')
+        self.plotter.show()
+
+        if origin_scale is not None:
+            self.plot_origin(scale=origin_scale)
+
+        if track_click_position:
+            self.plotter.track_click_position(callback=self.get_coordinates, side='right', double=False, viewport=False)
+
+    def add_points(self, points, color='red'):
+        """
+        Function draws a group of points.
+        :param points: numpy array of points
+        :param color: color of points
+        :return: None
+        """
+        self.plotter.add_points(points, render_points_as_spheres=True, point_size=10, color=color)
+        self.plotter.update()
+
+    def get_coordinates(self, position):
+        """
+        Callback function for track_click_position function
+        """
+        i = self.dof_to_ind[self.xyz]
+        self.chosen_points[f'Position_{i + 1}'].append((np.array(position[i])))
+        print(self.xyz, i, position[i])
+        if self.xyz == 'z':
+            clicked_point = np.array([[self.chosen_points[f'Position_1'][-1],
+                                       self.chosen_points[f'Position_2'][-1],
+                                       self.chosen_points[f'Position_3'][-1]]], dtype=float)
+            clicked_point_upd = match_coordinates(clicked_point, self.rst.mesh.nodes, atol=self.atol)
+            if clicked_point_upd is not None:
+                self.chosen_points_upd.append(clicked_point_upd)
+            self.plotter.add_points(clicked_point, render_points_as_spheres=True, point_size=10., color='red')
+            self.plotter.add_points(clicked_point_upd, render_points_as_spheres=True, point_size=10., color='orange')
+            self.plotter.update()
+            # print(clicked_point, clicked_point_upd)
+        self.xyz = self.ind_to_dof[i + 1]
+        return
+
+    def get_chosen_points(self):
+        """
+        Function returns chosen points coordinates.
+        Returns: np.array of chosen points coordinates
+        """
+        return np.array(self.chosen_points_upd).squeeze()
+
+    def plot_origin(self, scale, loc=None):
+        """
+        Function plots origin of the coordinate system.
+        Args:
+            scale: scale of the arrows
+            loc: location of the origin
+
+        Returns: None
+
+        """
+        if loc is None:
+            loc = [0, 0, 0]
+        x_arrow = pv.Arrow((loc[0], loc[1], loc[2]), (1, 0, 0), scale=scale)
+        y_arrow = pv.Arrow((loc[0], loc[1], loc[2]), (0, 1, 0), scale=scale)
+        z_arrow = pv.Arrow((loc[0], loc[1], loc[2]), (0, 0, 1), scale=scale)
+        self.plotter.add_mesh(x_arrow, color='#87100c')  # dark red
+        self.plotter.add_mesh(y_arrow, color='#167509')  # dark green
+        self.plotter.add_mesh(z_arrow, color='#06064f')  # dark blue
+# ---------------------------------------------------------------------------------

@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-import modalno_kladivo_analiza as mka
 import matplotlib
 import matplotlib.pyplot as plt
 import pyvista as pv
@@ -196,6 +195,8 @@ def transform_system(arr, transformation_dict):
     return arr_transformed
 
 
+# ---------------------------------------------------------------------------------
+# PyVista add-ons
 def plot_origin(plotter, scale, loc=None):
     if loc is None:
         loc = [0, 0, 0]

@@ -4,6 +4,7 @@ import prettytable
 from tqdm.notebook import tqdm
 import random
 from IPython.display import clear_output
+from tools import H
 
 
 def MSE(y_pred, y_real):
@@ -155,8 +156,8 @@ def confusion_matrix(predictions, references, classes=(0, 1), print_=False):
 # ---------------------------------------------------------------------------------------------------------------------
 # PCA
 class PCA:
-    def __init__(self, H, p=None):
-        self.H = H
+    def __init__(self, H_matrix, p=None):
+        self.H = H_matrix
         self.p = p
         self.col_avg, self.col_std, self.H_adj, self.eigvals, self.eigvecs, self.Cmatch = self.get_reduction_matrix()
 
@@ -210,7 +211,7 @@ class PCA:
             ax_2.grid()
 
 
-def PCA_old(H, p, reconstruct=False, compare=False, i=None, show_scores=False, no_scores=None):
+def PCA_old(H_matrix, p, reconstruct=False, compare=False, i=None, show_scores=False, no_scores=None):
     """
     Principal component analysis implementation. H must be of shape: n×m, where n (rows) is a
     number of frequency points and m (columns) is a number of channels.
@@ -223,8 +224,8 @@ def PCA_old(H, p, reconstruct=False, compare=False, i=None, show_scores=False, n
     no_scores: number of scores plotted (must be less than p)
     """
 
-    row_avg = H.mean(axis=1)  # average row value
-    H_adj = (H - row_avg[:, np.newaxis])  # H matrix adjustment
+    row_avg = H_matrix.mean(axis=1)  # average row value
+    H_adj = (H_matrix - row_avg[:, np.newaxis])  # H matrix adjustment
     eigvals, eigvecs = np.linalg.eig(np.conjugate(H_adj.T) @ H_adj)  # eignevalue problem solution
 
     PCA_scores = H_adj @ eigvecs[:, :p]  # PCA
@@ -245,7 +246,7 @@ def PCA_old(H, p, reconstruct=False, compare=False, i=None, show_scores=False, n
 
         if compare:
             ax_2.semilogy(abs(PCA_rec)[:, i], label='reconstruction', c='k', lw=3)
-            ax_2.semilogy(abs(H)[:, i], '--', label='original', c='y');
+            ax_2.semilogy(abs(H_matrix)[:, i], '--', label='original', c='y');
             ax_2.legend()
             ax_2.grid()
         return PCA_scores, PCA_rec
