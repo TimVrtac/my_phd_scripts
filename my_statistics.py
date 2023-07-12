@@ -3,6 +3,7 @@ import numpy as np
 import prettytable
 from tqdm.notebook import tqdm
 import random
+from IPython.display import clear_output
 
 
 def MSE(y_pred, y_real):
@@ -148,6 +149,107 @@ def confusion_matrix(predictions, references, classes=(0, 1), print_=False):
         print(table)
 
     return table, sensitivity, specificity, overall
+
+
+# PCA
+# ---------------------------------------------------------------------------------------------------------------------
+# PCA
+class PCA:
+    def __init__(self, H, p=None):
+        self.H = H
+        self.p = p
+        self.col_avg, self.col_std, self.H_adj, self.eigvals, self.eigvecs, self.Cmatch = self.get_reduction_matrix()
+
+    def get_reduction_matrix(self):
+        col_avg = self.H.mean(axis=0)  # average column value
+        print('Average over columns - done')
+        col_std = np.sum((self.H - col_avg)**2, axis=0)/self.H.shape[0]  # standard deviation for over columns
+        print('Standard deviation over columns - done')
+        H_adj = (self.H - col_avg)/np.sqrt(col_std*self.H.shape[0])  # H matrix adjustment
+        print('Adjusted H matrix - done')
+        C = np.conj(H_adj.T) @ H_adj  # Correlation matrix
+        print('Correlation matrix - done')
+        eigvals, eigvecs = np.linalg.eig(C)  # eignevalue problem solution
+        print('Eigenproblem - done')
+        clear_output()
+        return col_avg, col_std, H_adj, eigvals, eigvecs, C
+
+    def get_projection_matrix(self, H_=None, p=None):
+        if p is not None:
+            self.p = p
+        if H_ is None:
+            H_adj_ = self.H_adj
+        else:
+            H_adj_ = (H_ - self.col_avg) / np.sqrt(self.col_std * self.H.shape[0])
+        return np.einsum('ki,ij->kj', H_adj_, self.eigvecs[:, :self.p])
+
+    def reconstruct(self, H_=None):
+        if H_ is None:
+            H_ = self.H
+        H_adj_R = np.einsum('ij,kj->ik', self.get_projection_matrix(H_), self.eigvecs[:, :self.p])
+        return H_adj_R * (np.sqrt(self.col_std*self.H.shape[0])) + self.col_avg
+
+    def plot_results(self, H_, plot_PC_scores, plot_reconstruction, no_scores, i):
+        """TODO: bolj posplošiti - trenutno samo za izhodiščni H"""
+        if plot_reconstruction and plot_PC_scores:
+            fig, ax = plt.subplots(1, 2, figsize=(10, 4))
+            ax_1, ax_2 = ax[0], ax[1]
+        elif plot_reconstruction:
+            fig, ax_2 = plt.subplots(1, 1)
+        elif plot_PC_scores:
+            fig, ax_1 = plt.subplots(1, 1)
+
+        if plot_PC_scores:
+            ax_1.semilogy(abs(self.get_PCA_scores(H_)[:, :no_scores]))
+            ax_1.set_title('PCA scores')
+
+        if plot_reconstruction:
+            ax_2.semilogy(abs(self.reconstruct())[:, i], label='reconstruction', c='k', lw=3)
+            ax_2.semilogy(abs(self.H)[:, i], '--', label='original', c='y');
+            ax_2.legend()
+            ax_2.grid()
+
+
+def PCA_old(H, p, reconstruct=False, compare=False, i=None, show_scores=False, no_scores=None):
+    """
+    Principal component analysis implementation. H must be of shape: n×m, where n (rows) is a
+    number of frequency points and m (columns) is a number of channels.
+    H: FRF matrix
+    p: numer of principal components kept after reduction
+    reconstruct: reconstruction of FRF after dim. reduction
+    compare: plot graph with comparison of original vs reconstructed FRF
+    i: index of plotted FRF in comparison graph
+    show_scores: plot pca results (scores)
+    no_scores: number of scores plotted (must be less than p)
+    """
+
+    row_avg = H.mean(axis=1)  # average row value
+    H_adj = (H - row_avg[:, np.newaxis])  # H matrix adjustment
+    eigvals, eigvecs = np.linalg.eig(np.conjugate(H_adj.T) @ H_adj)  # eignevalue problem solution
+
+    PCA_scores = H_adj @ eigvecs[:, :p]  # PCA
+
+    if compare and show_scores:
+        fig, ax = plt.subplots(1, 2, figsize=(10, 4))
+        ax_1, ax_2 = ax[0], ax[1]
+    elif compare:
+        fig, ax_2 = plt.subplots(1, 1)
+    elif show_scores:
+        fig, ax_1 = plt.subplots(1, 1)
+    if show_scores:
+        ax_1.semilogy(abs(PCA_scores[:, :no_scores]))
+        ax_1.set_title('PCA scores')
+
+    if reconstruct:  # reconstruction
+        PCA_rec = PCA_scores @ np.conjugate(eigvecs[:, :p].T) + row_avg[:, np.newaxis]
+
+        if compare:
+            ax_2.semilogy(abs(PCA_rec)[:, i], label='reconstruction', c='k', lw=3)
+            ax_2.semilogy(abs(H)[:, i], '--', label='original', c='y');
+            ax_2.legend()
+            ax_2.grid()
+        return PCA_scores, PCA_rec
+    return PCA_scores
 
 
 # STATISTICAL LEARNING
@@ -430,7 +532,8 @@ def quadratic_discriminant_analysis(input_data, predictors, outputs):
 # general k-Fold CV
 def k_fold_CV(inputs_, outputs_, k, K, prediction_model):
     # TODO: passing additional arguments into prediction_model function
-    """Function performs k-fold Cross Validation for the purpose of optimal K value determination of prediction_model function
+    """Function performs k-fold Cross Validation for the purpose of optimal K value determination of prediction_model
+     function.
 
     Args:
         inputs_ (numpy array): numeric array of input values (n×p matrix) where n is sample size and p is number of
@@ -439,8 +542,8 @@ def k_fold_CV(inputs_, outputs_, k, K, prediction_model):
         k (int): number of folds. Defaults to 10.
         K (list/numpy array): Parameter for which we search the value which provides minimum error.
                                         Possible K values.
-        prediction_model (function): function with parameters: x_test, x_train, y_train which performs predictions for given
-                                     input data.
+        prediction_model (function): function with parameters: x_test, x_train, y_train which performs predictions for
+                                     given input data.
 
     Returns:
         list: error rates corresponding to the input K values
