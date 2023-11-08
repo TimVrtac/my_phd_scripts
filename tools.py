@@ -143,7 +143,7 @@ def step(x, x_step):
     return np.where(x < x_step, 0, 1)
 
 
-def match_coordinates(points, mesh, atol):
+def match_coordinates(points, mesh, atol, print_=False):
     """
     Returns 'points' which match with points in 'mesh'.
     :param points: np.array with point coordinates (shape: n×3)
@@ -160,6 +160,8 @@ def match_coordinates(points, mesh, atol):
                                   np.isclose(mesh[:, 1], i[1], atol=atol) &
                                   np.isclose(mesh[:, 2], i[2], atol=atol))[0][0])
         except IndexError:
+            if print_:
+                print('Missing point: ', i)
             pass
         mask += np.isclose(mesh[:, 0], i[0], atol=atol) &\
                 np.isclose(mesh[:, 1], i[1], atol=atol) &\
@@ -224,6 +226,38 @@ def plt_font_setup(family='serif', font='Computer Modern Roman', fontsize=10):
     plt.rcParams['font.family'] = family
     plt.rcParams['font.sans-serif'] = font
     plt.rcParams['font.size'] = fontsize
+
+
+def imshow_add_vals(vals, color='white', fontsize=10, ax=None, w_lim=None, label_format='float', decimals=3):
+    """
+    Function adds values to the imshow plot.
+    Args:
+        im: imshow plot
+        vals: values to be added (2D np array)
+        color: color of the text
+        fontsize: fontsize of the text
+        ax: axis of the plot
+
+    Returns: None
+
+    """
+    if ax is None:
+        ax = plt.gca()
+    if w_lim is None:
+        w_lim = 0
+    for (j, i), label in np.ndenumerate(vals):
+        if label < w_lim:
+            color = 'white'
+        else:
+            color = 'black'
+        if label_format == 'float':
+            label = f'{label:.{decimals}f}'
+        elif label_format == 'int':
+            label = f'{label:.0f}'
+        elif label_format == 'sci':
+            label = f'{label:.{decimals}e}'
+        ax.text(i, j, f'{label}', ha='center', va='center', color=color, fontsize=fontsize)
+    return
 
 
 def H(matrix):

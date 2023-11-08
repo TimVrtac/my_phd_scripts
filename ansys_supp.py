@@ -3,6 +3,10 @@ import numpy as np
 from tqdm.notebook import tqdm
 import pyvista as pv
 from tools import match_coordinates
+from IPython.display import clear_output, display
+from ipywidgets import Output
+import sys
+from numba import njit
 
 
 def unpack_rst(rst_path):
@@ -39,7 +43,14 @@ def get_values_from_rst(rst, dofs = None):
     return eigen_freq, eigen_val, eigen_vec, eigen_vec_strain
 
 
-def get_eigvec(points, directions, nodes, eigvec, atol=1e-8, factor=1000, print_=True, no_dofs=3, return_indices=False):
+def get_sign(x):
+    if x[0] == '-':
+        return -1
+    else:
+        return 1
+
+
+def get_eigvec(points, directions, nodes, eigvec, atol=1e-8, factor=1, print_=True, no_dofs=3, return_indices=False):
     """
     Function gets the mode shapes in DoFs of specified points and directions.
     :param points: points in which mode shapes are to be extracted (np.array)
@@ -65,6 +76,8 @@ def get_eigvec(points, directions, nodes, eigvec, atol=1e-8, factor=1000, print_
             print(i, j, points_ind, points_ind*3+dir_dict[j[-1]], dir_dict[j[-1]], j)
     # get eigvec
     eigvec_ = eigvec[dofs, :]
+    signs = np.array(list(map(get_sign, directions)))
+    eigvec_ = np.einsum('i,ij->ij', signs, eigvec_)
     if eigvec_.shape[0] == points.shape[0]:
         print(f'OK. {eigvec_.shape[0]}/{points.shape[0]} eigenvectors found.')
     else:
@@ -75,6 +88,7 @@ def get_eigvec(points, directions, nodes, eigvec, atol=1e-8, factor=1000, print_
         return eigvec_
 
 
+# @njit
 def get_FRF(acc_eig_vec, imp_eig_vec, eig_freq, freq, modes=None, damping=0.003):
     """
     Function returns accelerance FRF calculated using modal superposition for inserted eigenvectors and natural
@@ -92,7 +106,8 @@ def get_FRF(acc_eig_vec, imp_eig_vec, eig_freq, freq, modes=None, damping=0.003)
     if modes is None:
         modes = acc_eig_vec.shape[1]
     FRF = np.zeros([acc_eig_vec.shape[0], imp_eig_vec.shape[0], omega.shape[0]], dtype=complex)
-    for i in tqdm(range(modes), leave=False):
+    # for i in tqdm(range(modes), leave=False):
+    for i in range(modes):
         vec1 = acc_eig_vec[:, i][:, np.newaxis]
         vec2 = imp_eig_vec[:, i][np.newaxis]
         val = eig_freq[i]
@@ -107,10 +122,13 @@ def get_FRF(acc_eig_vec, imp_eig_vec, eig_freq, freq, modes=None, damping=0.003)
 # Visualization using PyVista
 class PlotObj:
     """Class for plotting from .rst file (Ansys results) and choosing points on the plot."""
-    def __init__(self, rst, atol, notebook=False, origin_scale=None, track_click_position=False):
+    def __init__(self, rst, atol, notebook=False, origin_scale=None, track_click_position=False, plot_nodes=False):
         self.rst = rst
         self.atol = atol
         self.plotter = pv.Plotter(notebook=notebook)
+        self.plotter.add_key_event('x', self.close_plot)
+        if notebook is False:
+            self.plotter.add_text('press "x" to close the plot')
         self.xyz = 'x'
         self.chosen_points = {f'Position_{i + 1}': [] for i in range(3)}
         self.chosen_points_upd = []
@@ -119,6 +137,10 @@ class PlotObj:
 
         # plot object
         self.plotter.add_mesh(rst.grid, show_edges=True, style='wireframe')
+        if plot_nodes:
+            self.plotter.add_points(rst.grid.points, render_points_as_spheres=True, point_size=4., color='black',
+                                    opacity=0.5)
+
         self.plotter.show()
 
         if origin_scale is not None:
@@ -126,6 +148,16 @@ class PlotObj:
 
         if track_click_position:
             self.plotter.track_click_position(callback=self.get_coordinates, side='right', double=False, viewport=False)
+            # Click position feedback
+            self.out = Output()
+            display(self.out)
+
+    def show_plot(self):
+        self.plotter.show()
+
+    def close_plot(self):
+        self.plotter.close()
+        sys.exit(0)
 
     def add_points(self, points, color='red'):
         """
@@ -143,18 +175,24 @@ class PlotObj:
         """
         i = self.dof_to_ind[self.xyz]
         self.chosen_points[f'Position_{i + 1}'].append((np.array(position[i])))
-        print(self.xyz, i, position[i])
+        with self.out:
+            print(self.xyz, i, position[i])
         if self.xyz == 'z':
             clicked_point = np.array([[self.chosen_points[f'Position_1'][-1],
                                        self.chosen_points[f'Position_2'][-1],
                                        self.chosen_points[f'Position_3'][-1]]], dtype=float)
             clicked_point_upd = match_coordinates(clicked_point, self.rst.mesh.nodes, atol=self.atol)
+            self.plotter.add_points(clicked_point, render_points_as_spheres=True, point_size=10., color='red')
             if clicked_point_upd is not None:
                 self.chosen_points_upd.append(clicked_point_upd)
-            self.plotter.add_points(clicked_point, render_points_as_spheres=True, point_size=10., color='red')
-            self.plotter.add_points(clicked_point_upd, render_points_as_spheres=True, point_size=10., color='orange')
+                self.plotter.add_points(clicked_point_upd, render_points_as_spheres=True, point_size=10.,
+                                        color='orange')
+                with self.out:
+                    self.out.clear_output(wait=False)
+                    print('Clicked point location: ', clicked_point, '\nUpdated point location: ', clicked_point_upd)
             self.plotter.update()
             # print(clicked_point, clicked_point_upd)
+            self.out.clear_output(wait=True)
         self.xyz = self.ind_to_dof[i + 1]
         return
 

@@ -6,6 +6,7 @@ from tools import H, T
 import timeit
 from scipy import signal
 import math
+from numba import njit
 
 
 def LMFBS(Y, Bc, Be, TSVD=False, reduction=0):
@@ -366,10 +367,12 @@ def B_matrix(n_A, n_B, int_A, int_B, n_J=12):
 
 # ------------------------------------------------------------------------------------------------------------------- #
 # Primerjava FRF
-def plot_ampl_phase(Y, i, j, labels, x_lim, title=False, ls=None, figsize=(15, 5)):
+def plot_ampl_phase(Y, i, j, labels, x_lim, title=False, ls=None, figsize=(15, 5),  FRF_type='receptance', figure=None,
+                    axes=None):
     """
     Function plots amplitude and phase of FRFs listed in Y.
     Args:
+        FRF_type: 'receptance', 'mobility' or 'accelerance'; 'dynamic_stiffness', 'nechanical_impedance', 'apparent mass'
         Y: list of admittance matrices
         i: row index
         j: column index
@@ -384,10 +387,21 @@ def plot_ampl_phase(Y, i, j, labels, x_lim, title=False, ls=None, figsize=(15, 5
     """
     # %matplotlib inline
     plt.rcParams['font.size'] = 14
-    fig, ax = plt.subplots(2, 1, figsize=figsize)
+    if (figure is None) and (axes is None):
+        fig, ax = plt.subplots(2, 1, figsize=figsize)
+    else:
+        fig = figure
+        ax = axes
     # fig.suptitle('Primerjava: $\mathbf{Y_{num}}$ vs. $\mathbf{Y_{exp}}$')
     if title:
-        fig.suptitle(f"Acc: {i}, imp: {j}")
+        if title is True:
+            fig.suptitle(f"Acc: {i}, imp: {j}")
+        elif type(title) == str:
+            fig.suptitle(title)
+        else:
+            print('Invalid title type')
+            return
+
     for ind, (Y_, lab_) in enumerate(zip(Y, labels)):
         if ls is not None:
             ls_ = ls[ind]
@@ -397,7 +411,21 @@ def plot_ampl_phase(Y, i, j, labels, x_lim, title=False, ls=None, figsize=(15, 5
         ax[0].semilogy(abs(Y_[:x_lim, i, j]), label=lab_, ls=ls_)
     ax[0].grid()
     ax[0].set_xlabel('f [hz]')
-    ax[0].set_ylabel('A [m/(s$^2$N)]')
+    if FRF_type == 'receptance':
+        ax[0].set_ylabel('A [m/N]')
+    elif FRF_type == 'mobility':
+        ax[0].set_ylabel('A [m/(sN)]')
+    elif FRF_type == 'accelerance':
+        ax[0].set_ylabel('A [m/(s$^2$N)]')
+    elif FRF_type == 'dynamic_stiffness':
+        ax[0].set_ylabel('Z [N/m]')
+    elif FRF_type == 'mechanical_impedance':
+        ax[0].set_ylabel('Z [N/(m/s)]')
+    elif FRF_type == 'apparent_mass':
+        ax[0].set_ylabel('Z [N/(m/s$^2$)]')
+    else:
+        print('Invalid FRF type')
+        return
     ax[0].legend(loc=(1.01, 0))
     for ind, (Y_, lab_) in enumerate(zip(Y, labels)):
         if ls is not None:
@@ -575,13 +603,15 @@ def Fourier_transform(meas_data, dt, force_window_=False, min_max_ratio=100, exp
 
 # -------------------------------------------------------------------------------------------------------------------#
 # Experimental modal analysis
-def get_FRF(X, F, filter_list=None, estimator='H1'):
+@njit
+def get_FRF(X, F, filter_list=None, estimator='H1', kind='admittance'):
     """
     Function calculates frequency response functions (FRF) from measurement data.
     :param X: np.array of accelerations (frequencies, repeated measurements)
     :param F: np.array of accelerations (frequencies, repeated measurements)
     :param filter_list: list of indices of measurements to be excluded from the FRF calculation
     :param estimator: FRF estimator (H1, H2)
+    :param kind: FRF type (admittance/impedance)
     :return: averaged FRF
     """
     N = X.shape[1]
@@ -592,6 +622,9 @@ def get_FRF(X, F, filter_list=None, estimator='H1'):
     elif estimator == 'H2':
         S_xx_avg = np.zeros_like(X[:, 0])
         S_xf_avg = np.zeros_like(F[:, 0])
+    else:
+        S_fx_avg, S_ff_avg, S_xx_avg, S_xf_avg = None, None, None, None
+        raise Exception('Invalid estimator. Enter H1 or H2.')
     for i in range(N):
         if estimator == 'H1':
             if filter_list is not None:
@@ -613,9 +646,21 @@ def get_FRF(X, F, filter_list=None, estimator='H1'):
             print('Invalid estimator')
             return
     if estimator == 'H1':
-        return S_fx_avg / S_ff_avg
+        if kind == 'admittance':
+            return S_fx_avg / S_ff_avg
+        elif kind == 'impedance':
+            return S_ff_avg / S_fx_avg
+        else:
+            print('Invalid FRF type')
+            return
     elif estimator == 'H2':
-        return S_xx_avg / S_xf_avg
+        if kind == 'admittance':
+            return S_xx_avg / S_xf_avg
+        elif kind == 'impedance':
+            return S_xf_avg / S_xx_avg
+        else:
+            print('Invalid FRF type')
+            return
 
 
 def find_nat_fr(frf, plot=False):

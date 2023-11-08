@@ -175,11 +175,12 @@ def df_template():
                          'Direction_1': [], 'Direction_2': [], 'Direction_3': []})
 
 
-def fill_df(df, points, dof_per_point, type_):
+def fill_df(df, points, dof_per_point, type_, direction_list=None):
     """
     Fills the df with the given data.
 
     Args:
+        direction_list: list of directions ('x', 'y', 'z' for each point)
         df: pd.DataFrame
         points: list of points (list of lists)
         dof_per_point: usually 1, 3 or 6
@@ -189,6 +190,8 @@ def fill_df(df, points, dof_per_point, type_):
     """
     chn_dof_dict = {0: 'ux', 1: 'uy', 2: 'uz', 3: 'rx', 4: 'ry', 5: 'rz'}
     imp_dof_dict = {0: 'fx', 1: 'fy', 2: 'fz', 3: 'mx', 4: 'my', 5: 'mz'}
+    dof_to_ind = {'x': 0, 'y': 1, 'z': 2}
+    directions = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
     if type_ == 'channel' or type_ == 'chn':
         dof_names = [chn_dof_dict[_] for _ in range(dof_per_point)]
         quantity = 'Acceleration'
@@ -198,18 +201,35 @@ def fill_df(df, points, dof_per_point, type_):
     else:
         raise ValueError('type must be either channel/chn or impact/imp')
     for p_ind, point in enumerate(points):
-        for dof_ind, dof in enumerate(dof_names):
-            directions = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-            to_add = pd.DataFrame({'Name': f'{type_}_{dof}_{p_ind+1}',
-                                           'Description': dof,
-                                           'Grouping': 0,
-                                           'Quantity': quantity,
-                                           'Position_1': point[0],
-                                           'Position_2': point[1],
-                                           'Position_3': point[2],
-                                           'Direction_1': directions[dof_ind % 3][0],
-                                           'Direction_2': directions[dof_ind % 3][1],
-                                           'Direction_3': directions[dof_ind % 3][2]}, index=[p_ind*dof_per_point+dof_ind])
-
+        if direction_list is None:
+            for dof_ind, dof in enumerate(dof_names):
+                dir_1, dir_2, dir_3 = directions[dof_ind % 3]
+                to_add = pd.DataFrame({'Name': f'{type_}_{dof}_{p_ind+1}',
+                                               'Description': dof,
+                                               'Grouping': 0,
+                                               'Quantity': quantity,
+                                               'Position_1': point[0],
+                                               'Position_2': point[1],
+                                               'Position_3': point[2],
+                                               'Direction_1': dir_1,
+                                               'Direction_2': dir_2,
+                                               'Direction_3': dir_3},
+                                      index=[p_ind*dof_per_point+dof_ind])
+                df = pd.concat([df, to_add])
+        else:
+            dof = direction_list[p_ind]
+            dir_1, dir_2, dir_3 = directions[dof_to_ind[dof]]
+            to_add = pd.DataFrame({'Name': f'{type_}_{dof}_{p_ind + 1}',
+                                   'Description': dof,
+                                   'Grouping': 0,
+                                   'Quantity': quantity,
+                                   'Position_1': point[0],
+                                   'Position_2': point[1],
+                                   'Position_3': point[2],
+                                   'Direction_1': dir_1,
+                                   'Direction_2': dir_2,
+                                   'Direction_3': dir_3},
+                                  index=[p_ind])
             df = pd.concat([df, to_add])
+
     return df
