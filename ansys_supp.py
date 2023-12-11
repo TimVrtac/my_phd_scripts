@@ -89,7 +89,7 @@ def get_eigvec(points, directions, nodes, eigvec, atol=1e-8, factor=1, print_=Tr
 
 
 # @njit
-def get_FRF(acc_eig_vec, imp_eig_vec, eig_freq, freq, modes=None, damping=0.003):
+def get_FRF(acc_eig_vec, imp_eig_vec, eig_freq, freq, damping_type='viscous', modes=None, damping=0.003):
     """
     Function returns accelerance FRF calculated using modal superposition for inserted eigenvectors and natural
     frequencies.
@@ -97,6 +97,7 @@ def get_FRF(acc_eig_vec, imp_eig_vec, eig_freq, freq, modes=None, damping=0.003)
     :param imp_eig_vec: excitation dofs' eigenvectors (np.array)
     :param eig_freq: natural frequencies (np.array)
     :param freq: frequencies at which FRF is calculated (np.array)
+    :param damping_type: type of damping model ('viscous' (also 'visc') or 'hysteretic' (also 'hyst')) (str)
     :param modes: number of modes included in modal superposition (int)
     :param damping: general damping factor (float) or list of damping factors for chosen number of modes (list of
     floats)
@@ -112,10 +113,31 @@ def get_FRF(acc_eig_vec, imp_eig_vec, eig_freq, freq, modes=None, damping=0.003)
         vec2 = imp_eig_vec[:, i][np.newaxis]
         val = eig_freq[i]
         if type(damping) == float:
-            FRF += np.einsum('ij,k->ijk', (vec1@vec2), 1/(val**2-omega**2 + 1.j*damping*val**2))
+            if (damping_type == 'hyst') or (damping_type == 'hysteretic'):
+                FRF += hyst_damping_single_mode_contrib(vec1, vec2, val, omega, damping)  # np.einsum('ij,k->ijk', (vec1@vec2), 1/(val**2-omega**2 + 1.j*damping*val**2))
+            elif (damping_type == 'visc') or (damping_type == 'viscous'):
+                FRF += visc_damping_single_mode_contrib(vec1, vec2, val, omega, damping)
+            else:
+                raise ValueError('Wrong damping type.')
         else:
-            FRF += np.einsum('ij,k->ijk', (vec1 @ vec2), 1 / (val ** 2 - omega ** 2 + 1.j * damping[i] * val ** 2))
+            if (damping_type == 'hyst') or (damping_type == 'hysteretic'):
+                FRF += hyst_damping_single_mode_contrib(vec1, vec2, val, omega, damping[i])  # np.einsum('ij,k->ijk', (vec1 @ vec2), 1 / (val ** 2 - omega ** 2 + 1.j * damping[i] * val ** 2))
+            elif (damping_type == 'visc') or (damping_type == 'viscous'):
+                FRF += visc_damping_single_mode_contrib(vec1, vec2, val, omega, damping[i])
+            else:
+                raise ValueError('Wrong damping type.')
+
     return FRF
+
+
+def hyst_damping_single_mode_contrib(vec1, vec2, eig_freq, omega, damping):
+    return np.einsum('ij,k->ijk', (vec1@vec2), 1/(eig_freq**2-omega**2 + 1.j*damping*eig_freq**2))
+
+
+def visc_damping_single_mode_contrib(vec1, vec2, eig_freq, omega, damping):
+    clen1 = (vec1 * vec2) / (eig_freq * damping + 1.j * (omega - eig_freq * np.sqrt(1 - damping ** 2)))
+    clen2 = np.conj(vec1 * vec2) / (eig_freq * damping + 1.j * (omega + eig_freq * np.sqrt(1 - damping ** 2)))
+    return clen1 + clen2
 
 
 # ---------------------------------------------------------------------------------

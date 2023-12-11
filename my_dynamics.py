@@ -367,7 +367,7 @@ def B_matrix(n_A, n_B, int_A, int_B, n_J=12):
 
 # ------------------------------------------------------------------------------------------------------------------- #
 # Primerjava FRF
-def plot_ampl_phase(Y, i, j, labels, x_lim, title=False, ls=None, figsize=(15, 5),  FRF_type='receptance', figure=None,
+def plot_FRFs(Y, i, j, labels, x_lim, title=False, ls=None, figsize=(15, 5),  FRF_type='receptance', figure=None,
                     axes=None):
     """
     Function plots amplitude and phase of FRFs listed in Y.
