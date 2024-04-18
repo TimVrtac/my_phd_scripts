@@ -663,6 +663,29 @@ def get_FRF(X, F, filter_list=None, estimator='H1', kind='admittance'):
             return
 
 
+def LAC(s_1, s_2, mean=False):
+   
+    """Compute Local Amplitude Criterion (LAC) of (complex or real-valued) signals s_1 and s_2.
+    -----------
+    Parameters:
+    -----------
+    s_1, s_2 : numpy.ndarray with identical shapes or at least shapes such that (s_1 + s_2) returns a valid result.
+    """
+
+    lac_ = ((2 * np.abs(s_1.conj() * s_2)) / ((s_1.conj() * s_1) + (s_2.conj() * s_2))).real
+   
+    if mean:
+        return np.mean(lac_)
+   
+    else:
+        return lac_
+
+
+""" def MAC(X_1, X_2, mean=False):
+    Modal assurance criterion (MAC) of two sets of mode shapes.
+    mac_ = (np.abs(X_1)) """
+
+
 def find_nat_fr(frf, plot=False):
     """
     Function identifies natural frequencies for the entered frequency response function (FRF).

@@ -50,7 +50,7 @@ def get_sign(x):
         return 1
 
 
-def get_eigvec(points, directions, nodes, eigvec, atol=1e-8, factor=1, print_=True, no_dofs=3, return_indices=False):
+def get_eigvec(points, directions, nodes, eigvec, atol=1e-8, factor=1, verbose=0, no_dofs=3, return_indices=False):
     """
     Function gets the mode shapes in DoFs of specified points and directions.
     :param points: points in which mode shapes are to be extracted (np.array)
@@ -59,7 +59,7 @@ def get_eigvec(points, directions, nodes, eigvec, atol=1e-8, factor=1, print_=Tr
     :param eigvec: eigenvectors - from rst file (np.array)
     :param atol: tolerance of point locations for finding nodes (float)
     :param factor: factor by which point coordinates are multiplied (float)
-    :param print_: if True, prints the search details (bool)
+    :param verbose: 0 - no print, 1- only number of matched eigvecs returned, 2 - printed detailes of each matched point (int)
     :param no_dofs: number of dofs per node (int) - depends on the FE type
     """
     dir_dict = {'x': 0, 'y': 1, 'z': 2}
@@ -72,15 +72,15 @@ def get_eigvec(points, directions, nodes, eigvec, atol=1e-8, factor=1, print_=Tr
             dofs.extend([points_ind*3 + dir_dict[j[-1]]])
         elif no_dofs == 1:
             dofs.extend([points_ind])  # in this case directions are not used
-        if print_:
+        if verbose==2:
             print(i, j, points_ind, points_ind*3+dir_dict[j[-1]], dir_dict[j[-1]], j)
     # get eigvec
     eigvec_ = eigvec[dofs, :]
     signs = np.array(list(map(get_sign, directions)))
     eigvec_ = np.einsum('i,ij->ij', signs, eigvec_)
-    if eigvec_.shape[0] == points.shape[0]:
+    if (eigvec_.shape[0] == points.shape[0]) and (verbose>0):
         print(f'OK. {eigvec_.shape[0]}/{points.shape[0]} eigenvectors found.')
-    else:
+    elif (eigvec_.shape[0] != points.shape[0]) and (verbose>0):
         print(f'Eigenvectors missing. {eigvec_.shape[0]}/{points.shape[0]} eigenvectors found.')
     if return_indices:
         return eigvec_, indices
@@ -89,13 +89,13 @@ def get_eigvec(points, directions, nodes, eigvec, atol=1e-8, factor=1, print_=Tr
 
 
 # @njit
-def get_FRF(acc_eig_vec, imp_eig_vec, eig_freq, freq, damping_type='viscous', modes=None, damping=0.003):
+def get_FRF(acc_eig_vec, imp_eig_vec, eig_freq, freq, damping_type='hyst', modes=None, damping=0.003):
     """
     Function returns accelerance FRF calculated using modal superposition for inserted eigenvectors and natural
     frequencies.
     :param acc_eig_vec: channel dofs' eigenvectors (np.array)
     :param imp_eig_vec: excitation dofs' eigenvectors (np.array)
-    :param eig_freq: natural frequencies (np.array)
+    :param eig_freq: natural frequencies in rad/s (np.array)
     :param freq: frequencies at which FRF is calculated (np.array)
     :param damping_type: type of damping model ('viscous' (also 'visc') or 'hysteretic' (also 'hyst')) (str)
     :param modes: number of modes included in modal superposition (int)
@@ -113,31 +113,52 @@ def get_FRF(acc_eig_vec, imp_eig_vec, eig_freq, freq, damping_type='viscous', mo
         vec2 = imp_eig_vec[:, i][np.newaxis]
         val = eig_freq[i]
         if type(damping) == float:
-            if (damping_type == 'hyst') or (damping_type == 'hysteretic'):
-                FRF += hyst_damping_single_mode_contrib(vec1, vec2, val, omega, damping)  # np.einsum('ij,k->ijk', (vec1@vec2), 1/(val**2-omega**2 + 1.j*damping*val**2))
-            elif (damping_type == 'visc') or (damping_type == 'viscous'):
-                FRF += visc_damping_single_mode_contrib(vec1, vec2, val, omega, damping)
-            else:
-                raise ValueError('Wrong damping type.')
+            damping_i = damping
         else:
-            if (damping_type == 'hyst') or (damping_type == 'hysteretic'):
-                FRF += hyst_damping_single_mode_contrib(vec1, vec2, val, omega, damping[i])  # np.einsum('ij,k->ijk', (vec1 @ vec2), 1 / (val ** 2 - omega ** 2 + 1.j * damping[i] * val ** 2))
-            elif (damping_type == 'visc') or (damping_type == 'viscous'):
-                FRF += visc_damping_single_mode_contrib(vec1, vec2, val, omega, damping[i])
-            else:
-                raise ValueError('Wrong damping type.')
+            damping_i = damping[i]
+        if (damping_type == 'hyst') or (damping_type == 'hysteretic'):
+            FRF += hyst_damping_single_mode_contrib(vec1, vec2, val, omega, damping_i)  # np.einsum('ij,k->ijk', (vec1@vec2), 1/(val**2-omega**2 + 1.j*damping*val**2))
+        elif (damping_type == 'visc') or (damping_type == 'viscous'):
+            #print('ERROR in viscous damping!!!!')
+            FRF += visc_damping_single_mode_contrib(vec1, vec2, val, omega, damping_i)
+        else:
+            raise ValueError('Wrong damping type.')
 
     return FRF
 
 
 def hyst_damping_single_mode_contrib(vec1, vec2, eig_freq, omega, damping):
+    """
+    Function returns single mode contribution to FRF with hysteresis damping.
+    Args:
+        vec1 (np.array): response dof eigenvector
+        vec2 (np.array): excitation dof eigenvector
+        eig_freq (float): eigenfrequency
+        omega (np.array): array of frequencies in rad/s
+        damping (float): damping factor
+
+    Returns:
+        np.array: individual mode contribution to admittance matrix
+    """
     return np.einsum('ij,k->ijk', (vec1@vec2), 1/(eig_freq**2-omega**2 + 1.j*damping*eig_freq**2))
 
 
 def visc_damping_single_mode_contrib(vec1, vec2, eig_freq, omega, damping):
-    clen1 = (vec1 * vec2) / (eig_freq * damping + 1.j * (omega - eig_freq * np.sqrt(1 - damping ** 2)))
-    clen2 = np.conj(vec1 * vec2) / (eig_freq * damping + 1.j * (omega + eig_freq * np.sqrt(1 - damping ** 2)))
-    return clen1 + clen2
+    """
+    Function returns single mode contribution to FRF with viscous damping.
+    Args:
+        vec1 (np.array): response dof eigenvector
+        vec2 (np.array): excitation dof eigenvector
+        eig_freq (float): eigenfrequency
+        omega (np.array): array of frequencies in rad/s
+        damping (float): damping factor
+    
+    Returns:
+        np.array: individual mode contribution to admittance matrix
+        """
+    #clen1 = np.einsum('ij,k->ijk', vec1 @ vec2, 1 / (eig_freq * damping + 1.j * (omega - eig_freq * np.sqrt(1 - damping ** 2))))
+    #clen2 = np.einsum('ij,k->ijk', np.conj(vec1) @ np.conj(vec2), 1 / (eig_freq * damping + 1.j * (omega + eig_freq * np.sqrt(1 - damping ** 2))))
+    return np.einsum('ij,k->ijk', (vec1@vec2), 1/(eig_freq**2-omega**2 + 2*1.j*damping*eig_freq*omega)) #clen1 + clen2
 
 
 # ---------------------------------------------------------------------------------
@@ -193,7 +214,9 @@ class PlotObj:
 
     def get_coordinates(self, position):
         """
-        Callback function for track_click_position function
+        Callback function for track_click_position function.
+        :param position: coordinates of the clicked point
+        :return: None
         """
         i = self.dof_to_ind[self.xyz]
         self.chosen_points[f'Position_{i + 1}'].append((np.array(position[i])))

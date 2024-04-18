@@ -143,7 +143,7 @@ def step(x, x_step):
     return np.where(x < x_step, 0, 1)
 
 
-def match_coordinates(points, mesh, atol, print_=False):
+def match_coordinates(points, mesh, atol, verbose=0):
     """
     Returns 'points' which match with points in 'mesh'.
     :param points: np.array with point coordinates (shape: n×3)
@@ -160,15 +160,15 @@ def match_coordinates(points, mesh, atol, print_=False):
                                   np.isclose(mesh[:, 1], i[1], atol=atol) &
                                   np.isclose(mesh[:, 2], i[2], atol=atol))[0][0])
         except IndexError:
-            if print_:
+            if verbose > 1:
                 print('Missing point: ', i)
             pass
         mask += np.isclose(mesh[:, 0], i[0], atol=atol) &\
                 np.isclose(mesh[:, 1], i[1], atol=atol) &\
                 np.isclose(mesh[:, 2], i[2], atol=atol)
-    if len(order) == points.shape[0]:
+    if len(order) == points.shape[0] and verbose >= 1:
         print(f'OK. {len(order)}/{points.shape[0]} points matched to mesh')
-    else:
+    elif len(order) != points.shape[0]:
         print(f'Points missing. {len(order)}/{points.shape[0]} points matched to mesh')
     if len(order) == 0:
         print('No points matched to mesh')
@@ -290,6 +290,3 @@ def get_one_line():
             one_line_text += ' ' + line_
     pyperclip.copy(one_line_text)
     return one_line_text
-
-
-print(get_one_line())
