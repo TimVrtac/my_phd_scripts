@@ -5,6 +5,8 @@ from tqdm.notebook import tqdm
 import random
 from IPython.display import clear_output
 from tools import H
+from sklearn.base import clone
+from sklearn.model_selection import RepeatedStratifiedKFold
 
 
 def MSE(y_pred, y_real):
@@ -569,6 +571,167 @@ def k_fold_CV(inputs_, outputs_, k, K, prediction_model):
             errors_.append(classification_error_rate(k_pred, ref_fold_))
         error_rates.append(np.average(errors_))
     return error_rates
+
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# Ordinal classification
+class OrdinalClassifier():
+    """
+    Application of ordinal classification algorithm accroding from: E. Frank, M. Hall - "A simple approach to ordinal classification".
+    The algorithm extends the binary classification algorithm to the ordinal classification by transforming the labels.
+
+    Parameters:
+    clf: sklearn classifier object (scikit binary classifier that supports predict_proba method, i.e. it returns probabilities)
+    class_list: list of class labels (ordinal classification labels)
+    """
+    def __init__ (self, clf, class_list: list):
+        self.clf = clf
+        self.class_list = class_list
+            
+
+    def fit(self, X: np.array, y:np.array, **clf_params):
+        """Function fits the classifier to the provided training data.
+
+        Args:
+            X (2D np.array): Training data
+            y (1D np.array): Training labels
+            clf_params (dict): Parameters specific for the provided classifier.
+
+        Returns:
+            None
+        """
+        y_ord = self.ordinal_encoder(y)
+        self.cls_list = [self.clf(**clf_params) for i in range(y_ord.shape[1])]
+        self.cls_fitted = [self.cls_list[i].fit(X, y_ord[:,i]) for i in range(y_ord.shape[1])]
+        
+
+    def predict(self, X:np.array, return_prob:bool=False):
+        """Function predicts the labels for the provided data.
+
+        Args:
+            X (np.array): Data for which the labels are to be predicted.
+            return_prob (bool, optional): If true, probabilities for each class of each sample are returned. Defaults to False.
+
+        Returns:
+            predictions (np.array): Predicted labels for the provided data.
+            probabilites (np.array): Probabilities for each class of each sample.
+        """
+        true_ind = [np.argwhere(clf.classes_==1)[0] for clf in self.cls_fitted]
+        probability_array = np.array([clf.predict_proba(X)[:,true_ind[i_]].squeeze() for i_, clf in enumerate(self.cls_fitted)]).T
+        model_probabilities = self.get_class_probabilities(probability_array)
+        class_ind_array = np.argmax(model_probabilities, axis=1)
+        pred_ = [self.class_list[ind_] for ind_ in class_ind_array]
+        if return_prob:
+            return np.array(pred_), model_probabilities
+        else:
+            return np.array(pred_)
+
+    def get_class_probabilities(self, probability_array):
+        """Based on the individual ML model output probabilities, the function calculates the probabilities for each class.
+
+        Args:
+            probability_array (np.array): Array of probabilities returned by the individual ML model.
+
+        Returns:
+            np.array: Array of probabilities for each class.
+        """
+        prob_ = np.zeros((probability_array.shape[0], probability_array.shape[1]+1))
+        prob_[:,0] = np.ones(probability_array.shape[0]) - probability_array[:,0]
+        prob_[:,-1] = probability_array[:,-1]
+        for i in range(1, len(self.class_list)-1):
+            prob_[:,i] = probability_array[:,i-1] - probability_array[:,i]
+        return prob_
+
+    def ordinal_encoder(self, y):
+        """ 
+        Transformation of the labels to the ordinal classification format.
+
+        Args:
+            y (np.array): Labels to be transformed
+
+        Returns:
+            np.array: Transformed labels
+        """
+        new_class_lims = self.class_list[:-1]
+        y_ord = np.zeros((y.shape[0], len(new_class_lims)))
+        for i in range(len(new_class_lims)):
+            y_ord[:,i] = y > new_class_lims[i]
+        return y_ord
+    
+    def cross_validate(self, X:np.array, y:np.array, y_acc:np.array, valid_2: tuple=None , n_splits: int=10, n_repeats: int=10, random_state: int=42, leave_bar=True, bar_desc=None, **clf_params):
+        """Function performs cross-validation to test the accuracy of the classifier.
+
+        Args:
+            Main dataset:
+                X (np.array): Data used for the cross-validation
+                y (np.array): Labels used for the cross-validation
+                y_acc (np.array): Accurate values of the labels
+
+            Additional validation data:
+                valid_2 (tuple, optional): Additional dataset for validation of the ML algorithm; this data is not used in the training process. Form: (X_2, y_2, y_acc_2) Defaults to None.
+
+            Cross-validation parameters:
+                n_splits (int, optional): Number of folds in k-fold CV. Defaults to 10.
+                n_repeats (int, optional): Number of repeated CVs. Defaults to 10.
+                random_state (int, optional): Random state for selection of samples in individual folds. Defaults to 42.
+        """
+        cv_split = RepeatedStratifiedKFold(n_splits=n_splits, n_repeats=n_repeats, random_state=random_state)
+        self.n_splits = cv_split.get_n_splits(X, y)
+        self.cv_results = {'Accurate values': [], 'Labels': [], 'Predictions': []}
+        if valid_2 is not None:
+            self.cv_results_2 = {'Accurate values': [], 'Labels': [], 'Predictions': []}
+        for train, test in tqdm(cv_split.split(X, y), total=self.n_splits, leave=leave_bar, desc=bar_desc):
+            X_train_, y_train_ = X[train], y[train]
+            X_test_, y_test_, y_acc_ = X[test], y[test], y_acc[test]
+            self.fit(X_train_, y_train_, **clf_params)
+            #self.cv_results.append({'Accurate value': y_acc_, 'Label': y_test_, 'Prediction': self.predict(X_test_)})
+            self.cv_results['Accurate values'].extend(y_acc_)
+            self.cv_results['Labels'].extend(y_test_)
+            self.cv_results['Predictions'].extend(self.predict(X_test_))
+            if valid_2 is not None:
+                self.cv_results_2['Accurate values'].extend(valid_2[2])
+                self.cv_results_2['Labels'].extend(valid_2[1])
+                self.cv_results_2['Predictions'].extend(self.predict(valid_2[0]))
+                #self.cv_results_2.append({'Accurate value': valid_2[2], 'Label': valid_2[1], 'Prediction': self.predict(valid_2[0])})
+            self.cls_list = [clone(_) for _ in self.cls_list]
+        self.cv_results['Test score'] = self.get_test_score(self.cv_results['Labels'], self.cv_results['Predictions'])
+        self.cv_results['Total error'] = self.get_total_error(self.cv_results['Labels'], self.cv_results['Predictions'])
+        self.cv_results['Squared error'] = self.get_mean_squared_error(self.cv_results['Labels'], self.cv_results['Predictions'])
+        if valid_2 is not None:
+            self.cv_results_2['Test score'] = self.get_test_score(self.cv_results_2['Labels'], self.cv_results_2['Predictions'])
+            self.cv_results_2['Total error'] = self.get_total_error(self.cv_results_2['Labels'], self.cv_results_2['Predictions'])
+            self.cv_results_2['Squared error'] = self.get_mean_squared_error(self.cv_results_2['Labels'], self.cv_results_2['Predictions'])
+
+    @staticmethod
+    def get_test_score(y, y_pred):
+        """Function calculates the accuracy of the classifier.
+
+        Args:
+            y (np.array): True labels
+            y_pred (np.array): Predicted labels
+
+        Returns:
+            float: Accuracy of the classifier
+        """
+        return np.mean(np.array(y) == np.array(y_pred))
+    
+    @staticmethod
+    def get_total_error(y, y_pred):
+        """Function calculates the total error of the classifier.
+
+        Returns:
+            float: Total error of the classifier
+        """
+        return sum(abs(np.array(y) - np.array(y_pred))) / len(y)
+    
+    @staticmethod
+    def get_mean_squared_error(y, y_pred):
+        """Function calculates the squared error of the classifier.
+
+        Returns:
+            float: Squared error of the classifier
+        """
+        return sum((np.array(y) - np.array(y_pred))**2) / len(y)
 
 # TODO: add logistic reg.
 # TODO: implement shrinking methods to remove redundant predictors: best subset selection, stepwise selection,
